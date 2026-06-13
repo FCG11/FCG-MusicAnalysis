@@ -6,6 +6,17 @@ import './style.css'
 const API_KEY = import.meta.env.VITE_LASTFM_API_KEY
 const API_BASE = 'https://ws.audioscrobbler.com/2.0/'
 
+// Cuántos resultados pedimos vs. cuántos mostramos al final.
+const SEARCH_FETCH_LIMIT = 30
+const SEARCH_DISPLAY_LIMIT = 8
+const MIN_LISTENERS = 1000
+const ALBUMS_LIMIT = 12
+
+// ──────────────────────────────────────────────
+// Estado de la app (mínimo, solo lo necesario)
+// ──────────────────────────────────────────────
+let lastSearchResults = []
+
 // ──────────────────────────────────────────────
 // Renderizado inicial de la página
 // ──────────────────────────────────────────────
@@ -44,15 +55,12 @@ const resultsEl = document.querySelector('#results')
 // Helpers
 // ──────────────────────────────────────────────
 
-// Escapa caracteres HTML para evitar romper el render si un nombre
-// trae cosas como < > " &. Truco: usar la propia API del navegador.
 function escapeHtml(str) {
   const div = document.createElement('div')
   div.textContent = str
   return div.innerHTML
 }
 
-// Convierte "5295617" en "5.3M oyentes" — mucho más legible.
 function formatListeners(count) {
   const num = parseInt(count, 10)
   if (isNaN(num)) return ''
@@ -61,18 +69,27 @@ function formatListeners(count) {
   return `${num} oyentes`
 }
 
+function formatPlaycount(count) {
+  const num = parseInt(count, 10)
+  if (isNaN(num) || num === 0) return ''
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M reproducciones`
+  if (num >= 1_000) return `${Math.round(num / 1_000)}K reproducciones`
+  return `${num} reproducciones`
+}
+
+// Last.fm devuelve un array de imágenes con distintos tamaños.
+// Sacamos la URL de la talla que pidamos, o '' si no hay.
+function getImageUrl(images, size = 'large') {
+  if (!Array.isArray(images)) return ''
+  const match = images.find((img) => img.size === size)
+  return match?.['#text'] || ''
+}
+
 // ──────────────────────────────────────────────
-// Llamada a la API de Last.fm
+// Llamadas a la API de Last.fm
 // ──────────────────────────────────────────────
-// Cuántos resultados pedimos vs. cuántos mostramos al final.
-// Pedimos más para tener candidatos al filtrar el ruido.
-const SEARCH_FETCH_LIMIT = 30
-const SEARCH_DISPLAY_LIMIT = 8
-const MIN_LISTENERS = 1000
 
 async function searchArtists(query) {
-  // URLSearchParams arma los parámetros de la URL correctamente
-  // (escapando espacios y caracteres raros automáticamente).
   const params = new URLSearchParams({
     method: 'artist.search',
     artist: query,
@@ -82,38 +99,47 @@ async function searchArtists(query) {
   })
 
   const response = await fetch(`${API_BASE}?${params}`)
-
   if (!response.ok) {
     throw new Error(`Last.fm respondió con estado ${response.status}`)
   }
-
   const data = await response.json()
-
-  // El "?." y el "??" protegen contra estructuras inesperadas:
-  // si algo en la cadena es undefined, devolvemos [] en vez de explotar.
   const raw = data?.results?.artistmatches?.artist ?? []
 
-  // Ordenamos de más a menos popular.
-  // Nota: parseInt convierte el string "5295617" en el número 5295617.
+  // Ordenar por popularidad, filtrar ruido, cortar a top N.
   const sorted = [...raw].sort(
     (a, b) => parseInt(b.listeners, 10) - parseInt(a.listeners, 10)
   )
-
-  // Quitamos artistas con casi nadie escuchándolos (typos, tributos, spam).
   const filtered = sorted.filter(
     (artist) => parseInt(artist.listeners, 10) >= MIN_LISTENERS
   )
-
-  // Si el filtro nos deja sin resultados (búsqueda muy underground),
-  // mostramos los más populares aunque sean pocos oyentes.
   const finalList = filtered.length > 0 ? filtered : sorted
-
   return finalList.slice(0, SEARCH_DISPLAY_LIMIT)
 }
 
+async function fetchTopAlbums(artistName) {
+  const params = new URLSearchParams({
+    method: 'artist.getTopAlbums',
+    artist: artistName,
+    api_key: API_KEY,
+    format: 'json',
+    limit: String(ALBUMS_LIMIT),
+  })
+
+  const response = await fetch(`${API_BASE}?${params}`)
+  if (!response.ok) {
+    throw new Error(`Last.fm respondió con estado ${response.status}`)
+  }
+  const data = await response.json()
+  const albums = data?.topalbums?.album ?? []
+
+  // A veces Last.fm devuelve álbumes con name "(null)" — los quitamos.
+  return albums.filter((album) => album.name && album.name !== '(null)')
+}
+
 // ──────────────────────────────────────────────
-// Pintar resultados en la página
+// Renderizado de vistas
 // ──────────────────────────────────────────────
+
 function renderArtists(artists) {
   if (artists.length === 0) {
     resultsEl.innerHTML = `<p class="hint">No encontramos artistas con ese nombre. Intenta otro.</p>`
@@ -138,9 +164,65 @@ function renderArtists(artists) {
     .join('')
 }
 
+function renderAlbums(artistName, albums) {
+  const escapedArtist = escapeHtml(artistName)
+  const backButtonHtml = `<button class="back-btn" id="back-btn">← Volver a la búsqueda</button>`
+
+  if (albums.length === 0) {
+    resultsEl.innerHTML = `
+      ${backButtonHtml}
+      <p class="hint">No encontramos álbumes para ${escapedArtist}.</p>
+    `
+    return
+  }
+
+  const grid = albums
+    .map((album) => {
+      const name = escapeHtml(album.name)
+      const cover = getImageUrl(album.image, 'large')
+      const plays = formatPlaycount(album.playcount)
+      const coverHtml = cover
+        ? `<img class="album-cover" src="${cover}" alt="Portada de ${name}" loading="lazy" />`
+        : `<div class="album-cover album-cover-placeholder">♪</div>`
+      return `
+        <article class="album-card">
+          ${coverHtml}
+          <div class="album-info">
+            <p class="album-name">${name}</p>
+            <p class="album-plays">${plays}</p>
+          </div>
+        </article>
+      `
+    })
+    .join('')
+
+  resultsEl.innerHTML = `
+    ${backButtonHtml}
+    <h2 class="artist-heading">${escapedArtist}</h2>
+    <div class="album-grid">${grid}</div>
+  `
+}
+
 // ──────────────────────────────────────────────
-// Eventos: submit del formulario + click en una tarjeta
+// Acciones (orquestan API + render)
 // ──────────────────────────────────────────────
+
+async function showArtistAlbums(artistName) {
+  resultsEl.innerHTML = `<p class="hint">Cargando álbumes de ${escapeHtml(artistName)}...</p>`
+  try {
+    const albums = await fetchTopAlbums(artistName)
+    renderAlbums(artistName, albums)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  } catch (error) {
+    console.error('Error cargando álbumes:', error)
+    resultsEl.innerHTML = `<p class="error">No pudimos cargar los álbumes. Intenta de nuevo.</p>`
+  }
+}
+
+// ──────────────────────────────────────────────
+// Eventos
+// ──────────────────────────────────────────────
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault()
   const query = input.value.trim()
@@ -150,6 +232,7 @@ form.addEventListener('submit', async (event) => {
 
   try {
     const artists = await searchArtists(query)
+    lastSearchResults = artists
     renderArtists(artists)
   } catch (error) {
     console.error('Error buscando artistas:', error)
@@ -157,13 +240,17 @@ form.addEventListener('submit', async (event) => {
   }
 })
 
-// Event delegation: un solo listener en #results captura clicks
-// en cualquier tarjeta (presente o futura). Más eficiente que
-// poner un listener por cada tarjeta.
+// Un solo listener atrapa todos los clicks dentro de #results y
+// decide qué hacer según dónde se hizo click.
 resultsEl.addEventListener('click', (event) => {
-  const card = event.target.closest('.artist-card')
-  if (!card) return
-  const artistName = card.dataset.artist
-  console.log('Click en artista:', artistName)
-  // TODO sesión 3: mostrar álbumes de este artista
+  const artistCard = event.target.closest('.artist-card')
+  if (artistCard) {
+    showArtistAlbums(artistCard.dataset.artist)
+    return
+  }
+
+  const backBtn = event.target.closest('#back-btn')
+  if (backBtn) {
+    renderArtists(lastSearchResults)
+  }
 })
