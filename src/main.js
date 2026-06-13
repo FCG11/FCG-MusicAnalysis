@@ -18,6 +18,44 @@ const ALBUMS_LIMIT = 12
 let lastSearchResults = []
 
 // ──────────────────────────────────────────────
+// Persistencia de calificaciones (localStorage)
+// ──────────────────────────────────────────────
+const RATINGS_KEY = 'fcg-ratings-v1'
+
+function loadRatings() {
+  try {
+    return JSON.parse(localStorage.getItem(RATINGS_KEY) ?? '{}')
+  } catch {
+    // Si los datos están corruptos por alguna razón, empezamos limpios.
+    return {}
+  }
+}
+
+function saveRatings(ratings) {
+  localStorage.setItem(RATINGS_KEY, JSON.stringify(ratings))
+}
+
+function ratingKey(artist, album) {
+  return `${artist}::${album}`
+}
+
+function getRating(artist, album) {
+  const ratings = loadRatings()
+  return ratings[ratingKey(artist, album)] ?? 0
+}
+
+function setRating(artist, album, value) {
+  const ratings = loadRatings()
+  const key = ratingKey(artist, album)
+  if (value === 0) {
+    delete ratings[key]
+  } else {
+    ratings[key] = value
+  }
+  saveRatings(ratings)
+}
+
+// ──────────────────────────────────────────────
 // Renderizado inicial de la página
 // ──────────────────────────────────────────────
 const app = document.querySelector('#app')
@@ -83,6 +121,29 @@ function getImageUrl(images, size = 'large') {
   if (!Array.isArray(images)) return ''
   const match = images.find((img) => img.size === size)
   return match?.['#text'] || ''
+}
+
+// Genera los 5 botones de estrellas en orden 5,4,3,2,1.
+// El CSS usa flex row-reverse para mostrarlas como 1,2,3,4,5.
+// El truco está en cómo se rellenan al pasar el mouse — ver style.css.
+function renderStars(rating) {
+  const stars = []
+  for (let value = 5; value >= 1; value--) {
+    const filled = value <= rating ? 'star-filled' : ''
+    stars.push(
+      `<button type="button" class="star ${filled}" data-value="${value}" aria-label="Calificar con ${value}">★</button>`
+    )
+  }
+  return stars.join('')
+}
+
+// Actualiza el llenado visual de las estrellas sin re-renderizar la tarjeta.
+function updateRatingDisplay(ratingEl, newRating) {
+  const stars = ratingEl.querySelectorAll('.star')
+  stars.forEach((star) => {
+    const value = parseInt(star.dataset.value, 10)
+    star.classList.toggle('star-filled', value <= newRating)
+  })
 }
 
 // ──────────────────────────────────────────────
@@ -181,15 +242,17 @@ function renderAlbums(artistName, albums) {
       const name = escapeHtml(album.name)
       const cover = getImageUrl(album.image, 'large')
       const plays = formatPlaycount(album.playcount)
+      const currentRating = getRating(artistName, album.name)
       const coverHtml = cover
         ? `<img class="album-cover" src="${cover}" alt="Portada de ${name}" loading="lazy" />`
         : `<div class="album-cover album-cover-placeholder">♪</div>`
       return `
-        <article class="album-card">
+        <article class="album-card" data-artist="${escapedArtist}" data-album="${name}">
           ${coverHtml}
           <div class="album-info">
             <p class="album-name">${name}</p>
             <p class="album-plays">${plays}</p>
+            <div class="rating">${renderStars(currentRating)}</div>
           </div>
         </article>
       `
@@ -243,12 +306,29 @@ form.addEventListener('submit', async (event) => {
 // Un solo listener atrapa todos los clicks dentro de #results y
 // decide qué hacer según dónde se hizo click.
 resultsEl.addEventListener('click', (event) => {
+  // Click en una estrella: guardar/quitar rating
+  const star = event.target.closest('.star')
+  if (star) {
+    const card = star.closest('.album-card')
+    const artist = card.dataset.artist
+    const album = card.dataset.album
+    const value = parseInt(star.dataset.value, 10)
+    const current = getRating(artist, album)
+    // Click en la misma estrella ya marcada → desmarca (rating 0)
+    const newValue = current === value ? 0 : value
+    setRating(artist, album, newValue)
+    updateRatingDisplay(star.closest('.rating'), newValue)
+    return
+  }
+
+  // Click en una tarjeta de artista (vista de búsqueda)
   const artistCard = event.target.closest('.artist-card')
   if (artistCard) {
     showArtistAlbums(artistCard.dataset.artist)
     return
   }
 
+  // Click en "volver"
   const backBtn = event.target.closest('#back-btn')
   if (backBtn) {
     renderArtists(lastSearchResults)

@@ -255,3 +255,48 @@ h1 {
   font-size: 0.8rem;
   margin: 0;
 }
+
+/* ───── Sistema de calificación con estrellas ───── */
+
+/*
+ * Truco CSS: el DOM tiene las estrellas en orden 5,4,3,2,1.
+ * row-reverse las pinta visualmente como 1,2,3,4,5.
+ * Esto permite que al pasar el mouse sobre una, ella y todas
+ * las que vienen DESPUÉS en el DOM (~) se llenen — que son las
+ * que están visualmente ANTES.
+ */
+.rating {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 0.6rem;
+}
+
+.star {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--border);
+  transition: color 0.1s, transform 0.1s;
+}
+
+.star.star-filled {
+  color: #f1c40f;
+}
+
+/* Hover preview: al pasar sobre la calificación, "vaciamos" todas
+ * y luego rellenamos solo la apuntada + las que vienen después
+ * en el DOM (visualmente antes, gracias a row-reverse). */
+.rating:hover .star {
+  color: var(--border);
+}
+
+.rating .star:hover,
+.rating .star:hover ~ .star {
+  color: #f39c12;
+  transform: scale(1.15);
+}
