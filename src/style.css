@@ -61,6 +61,38 @@ h1 {
   margin: 0;
 }
 
+/* ───── Pestañas Buscar / Mi colección ───── */
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.tab {
+  background: none;
+  border: none;
+  padding: 0.6rem 1.1rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--text-soft);
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
 .search {
   margin-bottom: 2rem;
 }
@@ -254,6 +286,33 @@ h1 {
   color: var(--text-soft);
   font-size: 0.8rem;
   margin: 0;
+}
+
+.album-artist {
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  margin: 0 0 0.1rem;
+  font-style: italic;
+}
+
+.collection-card {
+  cursor: pointer;
+}
+
+/* ───── Estado vacío de "Mi colección" ───── */
+
+.empty-collection {
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.empty-collection-emoji {
+  font-size: 3.5rem;
+  margin: 0 0 1rem;
+}
+
+.empty-collection p {
+  margin: 0.5rem 0;
 }
 
 /* ───── Sistema de calificación con estrellas ───── */

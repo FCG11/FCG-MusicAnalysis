@@ -40,20 +40,36 @@ function ratingKey(artist, album) {
   return `${artist}::${album}`
 }
 
+// Lee el rating. Soporta formato viejo (solo número) y nuevo (objeto).
 function getRating(artist, album) {
-  const ratings = loadRatings()
-  return ratings[ratingKey(artist, album)] ?? 0
+  const data = loadRatings()[ratingKey(artist, album)]
+  if (typeof data === 'number') return data
+  return data?.rating ?? 0
 }
 
-function setRating(artist, album, value) {
+// Guarda rating + metadatos del álbum (artista, nombre, portada).
+function setRating(artist, album, value, cover = '') {
   const ratings = loadRatings()
   const key = ratingKey(artist, album)
   if (value === 0) {
     delete ratings[key]
   } else {
-    ratings[key] = value
+    ratings[key] = { rating: value, artist, album, cover }
   }
   saveRatings(ratings)
+}
+
+// Devuelve todos los álbumes calificados como un array uniforme,
+// migrando al vuelo los del formato viejo.
+function getAllRatedAlbums() {
+  const ratings = loadRatings()
+  return Object.entries(ratings).map(([key, data]) => {
+    if (typeof data === 'number') {
+      const [artist, album] = key.split('::')
+      return { artist, album, rating: data, cover: '' }
+    }
+    return data
+  })
 }
 
 // ──────────────────────────────────────────────
@@ -67,6 +83,11 @@ app.innerHTML = `
       <h1>FCG-MusicAnalysis</h1>
       <p class="tagline">Tu colección personal de álbumes y recomendaciones musicales</p>
     </header>
+
+    <nav class="tabs">
+      <button class="tab tab-active" data-view="search">Buscar</button>
+      <button class="tab" data-view="collection">Mi colección</button>
+    </nav>
 
     <section class="search">
       <form id="search-form">
@@ -243,6 +264,61 @@ function renderArtists(artists) {
     .join('')
 }
 
+function setActiveTab(view) {
+  document.querySelectorAll('.tab').forEach((tab) => {
+    tab.classList.toggle('tab-active', tab.dataset.view === view)
+  })
+}
+
+function renderCollection() {
+  setActiveTab('collection')
+  const items = getAllRatedAlbums()
+
+  // Ordenamos por rating descendente, y dentro del mismo rating
+  // por artista en orden alfabético (respetando acentos del español).
+  items.sort((a, b) => {
+    if (b.rating !== a.rating) return b.rating - a.rating
+    return a.artist.localeCompare(b.artist, 'es')
+  })
+
+  if (items.length === 0) {
+    resultsEl.innerHTML = `
+      <div class="empty-collection">
+        <p class="empty-collection-emoji">🎵</p>
+        <p>Aún no has calificado ningún álbum.</p>
+        <p class="hint">Busca un artista y marca tus favoritos con estrellas.</p>
+      </div>
+    `
+    return
+  }
+
+  const cards = items
+    .map((item) => {
+      const artist = escapeHtml(item.artist)
+      const album = escapeHtml(item.album)
+      const coverHtml = item.cover
+        ? `<img class="album-cover" src="${item.cover}" alt="Portada de ${album}" loading="lazy" />`
+        : `<div class="album-cover album-cover-placeholder">♪</div>`
+      return `
+        <article class="album-card collection-card" data-artist="${artist}" data-album="${album}">
+          ${coverHtml}
+          <div class="album-info">
+            <p class="album-name">${album}</p>
+            <p class="album-artist">${artist}</p>
+            <div class="rating">${renderStars(item.rating)}</div>
+          </div>
+        </article>
+      `
+    })
+    .join('')
+
+  const total = items.length
+  resultsEl.innerHTML = `
+    <h2 class="artist-heading">Mi colección · ${total} álbum${total !== 1 ? 'es' : ''}</h2>
+    <div class="album-grid">${cards}</div>
+  `
+}
+
 function renderSimilarArtists(artistName, similar) {
   if (similar.length === 0) return ''
 
@@ -321,6 +397,7 @@ function renderAlbums(artistName, albums, similar = []) {
 // ──────────────────────────────────────────────
 
 async function showArtistAlbums(artistName) {
+  setActiveTab('search')
   resultsEl.innerHTML = `<p class="hint">Cargando álbumes de ${escapeHtml(artistName)}...</p>`
   try {
     // Pedimos álbumes y artistas similares EN PARALELO con Promise.all.
@@ -347,6 +424,7 @@ form.addEventListener('submit', async (event) => {
   const query = input.value.trim()
   if (!query) return
 
+  setActiveTab('search')
   resultsEl.innerHTML = `<p class="hint">Buscando "${escapeHtml(query)}"...</p>`
 
   try {
@@ -357,6 +435,23 @@ form.addEventListener('submit', async (event) => {
     console.error('Error buscando artistas:', error)
     resultsEl.innerHTML = `<p class="error">No pudimos completar la búsqueda. Revisa tu conexión e intenta de nuevo.</p>`
   }
+})
+
+// Listener para las pestañas Buscar / Mi colección.
+document.querySelectorAll('.tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const view = tab.dataset.view
+    if (view === 'collection') {
+      renderCollection()
+    } else {
+      setActiveTab('search')
+      if (lastSearchResults.length > 0) {
+        renderArtists(lastSearchResults)
+      } else {
+        resultsEl.innerHTML = `<p class="hint">Escribe el nombre de un artista arriba para empezar.</p>`
+      }
+    }
+  })
 })
 
 // Un solo listener atrapa todos los clicks dentro de #results y
@@ -372,8 +467,18 @@ resultsEl.addEventListener('click', (event) => {
     const current = getRating(artist, album)
     // Click en la misma estrella ya marcada → desmarca (rating 0)
     const newValue = current === value ? 0 : value
-    setRating(artist, album, newValue)
+    // Sacamos la URL de la portada para guardarla con el rating.
+    const coverImg = card.querySelector('img.album-cover')
+    const cover = coverImg?.src ?? ''
+    setRating(artist, album, newValue, cover)
     updateRatingDisplay(star.closest('.rating'), newValue)
+    return
+  }
+
+  // Click en una tarjeta de la colección → ver álbumes de ese artista
+  const collectionCard = event.target.closest('.collection-card')
+  if (collectionCard) {
+    showArtistAlbums(collectionCard.dataset.artist)
     return
   }
 
@@ -387,6 +492,7 @@ resultsEl.addEventListener('click', (event) => {
   // Click en "volver"
   const backBtn = event.target.closest('#back-btn')
   if (backBtn) {
+    setActiveTab('search')
     renderArtists(lastSearchResults)
   }
 })
