@@ -11,6 +11,7 @@ const SEARCH_FETCH_LIMIT = 30
 const SEARCH_DISPLAY_LIMIT = 8
 const MIN_LISTENERS = 1000
 const ALBUMS_LIMIT = 12
+const SIMILAR_LIMIT = 6
 
 // ──────────────────────────────────────────────
 // Estado de la app (mínimo, solo lo necesario)
@@ -197,6 +198,23 @@ async function fetchTopAlbums(artistName) {
   return albums.filter((album) => album.name && album.name !== '(null)')
 }
 
+async function fetchSimilarArtists(artistName) {
+  const params = new URLSearchParams({
+    method: 'artist.getSimilar',
+    artist: artistName,
+    api_key: API_KEY,
+    format: 'json',
+    limit: String(SIMILAR_LIMIT),
+  })
+
+  const response = await fetch(`${API_BASE}?${params}`)
+  if (!response.ok) {
+    throw new Error(`Last.fm respondió con estado ${response.status}`)
+  }
+  const data = await response.json()
+  return data?.similarartists?.artist ?? []
+}
+
 // ──────────────────────────────────────────────
 // Renderizado de vistas
 // ──────────────────────────────────────────────
@@ -225,7 +243,37 @@ function renderArtists(artists) {
     .join('')
 }
 
-function renderAlbums(artistName, albums) {
+function renderSimilarArtists(artistName, similar) {
+  if (similar.length === 0) return ''
+
+  const escapedArtist = escapeHtml(artistName)
+  const cards = similar
+    .map((artist) => {
+      const name = escapeHtml(artist.name)
+      const initial = escapeHtml(artist.name.charAt(0).toUpperCase())
+      // El "match" viene como un número entre 0 y 1. Lo convertimos a %.
+      const matchPercent = Math.round(parseFloat(artist.match) * 100)
+      return `
+        <article class="artist-card similar-card" data-artist="${name}">
+          <div class="artist-avatar">${initial}</div>
+          <div class="artist-info">
+            <p class="artist-name">${name}</p>
+            <p class="artist-listeners">${matchPercent}% similar</p>
+          </div>
+        </article>
+      `
+    })
+    .join('')
+
+  return `
+    <section class="similar-section">
+      <h3 class="similar-heading">Si te gusta ${escapedArtist}, también te puede gustar:</h3>
+      <div class="similar-grid">${cards}</div>
+    </section>
+  `
+}
+
+function renderAlbums(artistName, albums, similar = []) {
   const escapedArtist = escapeHtml(artistName)
   const backButtonHtml = `<button class="back-btn" id="back-btn">← Volver a la búsqueda</button>`
 
@@ -233,6 +281,7 @@ function renderAlbums(artistName, albums) {
     resultsEl.innerHTML = `
       ${backButtonHtml}
       <p class="hint">No encontramos álbumes para ${escapedArtist}.</p>
+      ${renderSimilarArtists(artistName, similar)}
     `
     return
   }
@@ -263,6 +312,7 @@ function renderAlbums(artistName, albums) {
     ${backButtonHtml}
     <h2 class="artist-heading">${escapedArtist}</h2>
     <div class="album-grid">${grid}</div>
+    ${renderSimilarArtists(artistName, similar)}
   `
 }
 
@@ -273,8 +323,14 @@ function renderAlbums(artistName, albums) {
 async function showArtistAlbums(artistName) {
   resultsEl.innerHTML = `<p class="hint">Cargando álbumes de ${escapeHtml(artistName)}...</p>`
   try {
-    const albums = await fetchTopAlbums(artistName)
-    renderAlbums(artistName, albums)
+    // Pedimos álbumes y artistas similares EN PARALELO con Promise.all.
+    // El .catch(() => []) hace que si los similares fallan,
+    // sigamos mostrando los álbumes sin romper la página.
+    const [albums, similar] = await Promise.all([
+      fetchTopAlbums(artistName),
+      fetchSimilarArtists(artistName).catch(() => []),
+    ])
+    renderAlbums(artistName, albums, similar)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch (error) {
     console.error('Error cargando álbumes:', error)
