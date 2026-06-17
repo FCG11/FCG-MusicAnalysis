@@ -27,6 +27,74 @@ let currentLetter = null
 let cachedTopArtists = []
 
 // ──────────────────────────────────────────────
+// Hero cards flotantes (estilo Pallet Ross)
+// ──────────────────────────────────────────────
+
+function artistUsername(name) {
+  return '@' + name.toLowerCase().replace(/[^a-záéíóúñ0-9]/gi, '')
+}
+
+function populateHeroCards() {
+  const container = document.querySelector('#hero-cards')
+  if (!container) return
+
+  const top4 = cachedTopArtists.slice(0, 4)
+  const cards = []
+
+  // 4 cards de tus top artistas
+  for (let i = 0; i < top4.length; i++) {
+    const artist = top4[i]
+    cards.push({
+      name: artist.name,
+      username: artistUsername(artist.name),
+      kind: 'artist',
+    })
+  }
+
+  // 5ta card: tu foto personal como curador
+  cards.push({
+    name: 'fabisparrow',
+    username: '@fabisparrow',
+    kind: 'self',
+    image: '/hero.jpg',
+  })
+
+  if (cards.length === 0) return
+
+  container.innerHTML = cards
+    .map((card, i) => {
+      const initial = (card.name.charAt(0) || '?').toUpperCase()
+      const escName = escapeHtml(card.name)
+      const escUser = escapeHtml(card.username)
+
+      if (card.kind === 'self') {
+        return `
+          <article class="float-card float-card-${i + 1} float-card-self">
+            <div class="float-card-cover">
+              <img class="float-card-img" src="${card.image}" alt="Tu foto" />
+            </div>
+            <span class="float-card-name">${escUser}</span>
+          </article>
+        `
+      }
+
+      const [from, to] = gradientForName(card.name)
+      return `
+        <article class="float-card float-card-${i + 1} artist-card" data-artist="${escName}">
+          <div class="float-card-cover" data-artist-img="${escName}" style="background: linear-gradient(135deg, ${from} 0%, ${to} 100%)">
+            <span class="float-card-initial">${escapeHtml(initial)}</span>
+          </div>
+          <span class="float-card-name">${escUser}</span>
+        </article>
+      `
+    })
+    .join('')
+
+  // Si ya tenemos imágenes cacheadas, las traemos
+  populateArtistImages()
+}
+
+// ──────────────────────────────────────────────
 // Top artists de Last.fm (cache 6h en localStorage)
 // ──────────────────────────────────────────────
 const TOP_ARTISTS_CACHE_KEY = 'fcg-top-artists-v1'
@@ -299,21 +367,20 @@ app.innerHTML = `
   </nav>
 
   <section class="hero">
-    <img class="hero-photo" src="/hero.jpg" alt="Foto de Fabian" />
-    <div class="hero-overlay"></div>
-    <div class="hero-glow"></div>
+    <div class="hero-cards" id="hero-cards"></div>
+
     <div class="hero-content">
-      <div class="hero-text">
-        <p class="hero-eyebrow">Bienvenido a tu rincón musical</p>
-        <h1 class="hero-title">Mi laboratorio<br/>musical</h1>
-        <p class="hero-subtitle">Calificando álbumes, descubriendo artistas y guardando lo que me mueve.</p>
-        <a class="hero-spotify-btn" href="${SPOTIFY_URL}" target="_blank" rel="noopener noreferrer">
-          <span class="spotify-icon">♫</span> Sígueme en Spotify
-        </a>
+      <p class="hero-eyebrow">Bienvenido a tu galería musical</p>
+      <h1 class="hero-title">Un lugar para tu<br/>obsesión musical.</h1>
+      <p class="hero-subtitle">Explora artistas, califica álbumes y descubre quién te mueve. Tu música, tu colección, tu historia.</p>
+      <div class="hero-ctas">
+        <a class="hero-cta-primary" href="${SPOTIFY_URL}" target="_blank" rel="noopener noreferrer">Sígueme en Spotify</a>
+        <a class="hero-cta-secondary" href="#empieza" id="hero-explore">Empezar a explorar →</a>
       </div>
-      <aside class="hero-side">
-        <div class="now-playing" id="now-playing" hidden></div>
-      </aside>
+    </div>
+
+    <div class="now-playing-wrap">
+      <div class="now-playing" id="now-playing" hidden></div>
     </div>
   </section>
 
@@ -336,6 +403,21 @@ app.innerHTML = `
 
     <section id="results" class="results"></section>
   </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div class="footer-brand">
+        <p class="footer-logo">FCG · MusicAnalysis</p>
+        <p class="footer-tagline">Un lugar para tu obsesión musical. Construido con Last.fm + Deezer.</p>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/FCG11/FCG-MusicAnalysis" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://www.last.fm/user/${LASTFM_USER}" target="_blank" rel="noopener noreferrer">Last.fm</a>
+        <a href="${SPOTIFY_URL}" target="_blank" rel="noopener noreferrer">Spotify</a>
+      </div>
+      <p class="footer-copy">© 2026 · FCG · All rights reserved.</p>
+    </div>
+  </footer>
 `
 
 const form = document.querySelector('#search-form')
@@ -664,6 +746,55 @@ function renderStickerArtists(items) {
 // Componentes estilo "OdbPro": rows, lista, banners
 // ──────────────────────────────────────────────
 
+// ──────────────────────────────────────────────
+// Carrusel vertical infinito (Showcase Pallet Ross)
+// ──────────────────────────────────────────────
+
+function renderVerticalCarousel(artists) {
+  if (artists.length === 0) return ''
+
+  // Duplicamos las cards para crear el loop infinito perfecto.
+  // El CSS anima -50% del track, así el set duplicado queda donde
+  // empezó el primero.
+  const doubled = [...artists, ...artists]
+
+  const cards = doubled
+    .map((artist) => {
+      const name = escapeHtml(artist.name)
+      const username = escapeHtml(artistUsername(artist.name))
+      const [from, to] = gradientForName(artist.name)
+      const initial = artist.name.charAt(0).toUpperCase()
+      const playsLabel = formatMyPlays(artist.playcount)
+      return `
+        <article class="vcard artist-card" data-artist="${name}">
+          <div class="vcard-cover" data-artist-img="${name}" style="background: linear-gradient(135deg, ${from} 0%, ${to} 100%)">
+            <span class="vcard-initial">${escapeHtml(initial)}</span>
+          </div>
+          <div class="vcard-info">
+            <p class="vcard-name">${name}</p>
+            <p class="vcard-username">${username}${playsLabel ? ` · ${escapeHtml(playsLabel)}` : ''}</p>
+          </div>
+        </article>
+      `
+    })
+    .join('')
+
+  return `
+    <section class="showcase-section">
+      <div class="showcase-text">
+        <p class="showcase-eyebrow">Showcase</p>
+        <h2 class="showcase-title">Tus artistas<br/>en rotación.</h2>
+        <p class="showcase-sub">Los que más escuchas en Last.fm pasan uno tras otro, como una galería viviente. Pasa el cursor sobre la lista para pausarla.</p>
+      </div>
+      <div class="vcarousel">
+        <div class="vcarousel-track">
+          ${cards}
+        </div>
+      </div>
+    </section>
+  `
+}
+
 function renderRowSection(title, cardsHtml) {
   if (!cardsHtml) return ''
   return `
@@ -720,6 +851,129 @@ function renderRowAlbumCards(items) {
     .join('')
 }
 
+// ──────────────────────────────────────────────
+// "Acceso exclusivo a tu archivo": constelación de cards floating
+// ──────────────────────────────────────────────
+
+// Posiciones predefinidas para la constelación. Hasta 10 cards
+// flotantes alrededor del texto centrado. Cada una con su tamaño y rotación
+// determinística para consistencia visual.
+const CONSTEL_POSITIONS = [
+  { top: '0%',    left: '8%',   size: 'md', rot: -10 },
+  { top: '10%',   left: '30%',  size: 'sm', rot: 7   },
+  { top: '4%',    left: '54%',  size: 'md', rot: 13  },
+  { top: '0%',    right: '5%',  size: 'lg', rot: -6  },
+  { top: '40%',   left: '0%',   size: 'lg', rot: 4   },
+  { top: '38%',   right: '0%',  size: 'sm', rot: 12  },
+  { bottom: '10%', left: '13%', size: 'lg', rot: 5   },
+  { bottom: '0%', left: '40%',  size: 'md', rot: -9  },
+  { bottom: '14%', right: '22%', size: 'sm', rot: 14 },
+  { bottom: '5%', right: '4%',  size: 'md', rot: -5  },
+]
+
+function renderRecentRatedConstellation(items) {
+  if (items.length === 0) return ''
+
+  const max = Math.min(items.length, CONSTEL_POSITIONS.length)
+  const cards = items.slice(0, max)
+
+  const cardHtml = cards
+    .map((item, i) => {
+      const pos = CONSTEL_POSITIONS[i]
+      const placement = Object.entries(pos)
+        .filter(([k]) => !['size', 'rot'].includes(k))
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('; ')
+      const artist = escapeHtml(item.artist)
+      const album = escapeHtml(item.album)
+      const coverHtml = item.cover
+        ? `<img class="constel-cover" src="${item.cover}" alt="${album}" loading="lazy" />`
+        : `<div class="constel-cover constel-placeholder">♪</div>`
+      return `
+        <article class="constel-card constel-card-${pos.size} collection-card"
+                 data-artist="${artist}" data-album="${album}"
+                 style="${placement}; --rot: ${pos.rot}deg;"
+                 title="${album} · ${artist}">
+          ${coverHtml}
+          <p class="constel-label">${album}</p>
+        </article>
+      `
+    })
+    .join('')
+
+  return `
+    <section class="constel-section">
+      <div class="constel-stage">
+        ${cardHtml}
+        <div class="constel-center">
+          <h2 class="constel-title">Acceso exclusivo<br/>a tu archivo.</h2>
+          <p class="constel-sub">Las últimas obras que calificaste, flotando alrededor como tus reflejos musicales más recientes.</p>
+        </div>
+      </div>
+      <a class="constel-visit" href="#" id="constel-visit">↗ Calificar más</a>
+    </section>
+  `
+}
+
+// ──────────────────────────────────────────────
+// "Tus obras maestras": fan arqueado estilo Pallet Ross hero
+// ──────────────────────────────────────────────
+
+function renderTopRatedFan(items) {
+  if (items.length === 0) return ''
+
+  // Hasta 7 cards, centradas. Si hay menos, igual quedan alineadas.
+  const fanCount = Math.min(items.length, 7)
+  const cards = items.slice(0, fanCount)
+  const centerIdx = (fanCount - 1) / 2 // 3 para 7 cards, 2 para 5, etc.
+
+  const cardHtml = cards
+    .map((item, i) => {
+      const mult = i - centerIdx // pos relativa al centro: -3, -2, ..., 3
+      const absMult = Math.abs(mult)
+      const z = Math.round(10 - absMult * 2)
+      const artist = escapeHtml(item.artist)
+      const album = escapeHtml(item.album)
+      const coverHtml = item.cover
+        ? `<img class="top-fan-cover" src="${item.cover}" alt="${album}" loading="lazy" />`
+        : `<div class="top-fan-cover top-fan-placeholder">♪</div>`
+      return `
+        <article class="top-fan-card collection-card"
+                 data-artist="${artist}" data-album="${album}"
+                 title="${album} · ${artist}"
+                 style="--mult: ${mult}; --abs-mult: ${absMult}; z-index: ${z};">
+          ${coverHtml}
+        </article>
+      `
+    })
+    .join('')
+
+  // Speech bubbles: usar primer y último artista del fan
+  const leftCard = cards[0]
+  const rightCard = cards[cards.length - 1]
+  const bubbleLeft = leftCard
+    ? `<div class="top-fan-bubble top-fan-bubble-blue">${escapeHtml(artistUsername(leftCard.artist))}</div>`
+    : ''
+  const bubbleRight = rightCard && rightCard !== leftCard
+    ? `<div class="top-fan-bubble top-fan-bubble-green">${escapeHtml(artistUsername(rightCard.artist))}</div>`
+    : ''
+
+  return `
+    <section class="top-fan-section">
+      <h2 class="top-fan-title">Un lugar para<br/>tus obras maestras.</h2>
+      <div class="top-fan-stage">
+        ${bubbleLeft}${bubbleRight}
+        ${cardHtml}
+      </div>
+      <p class="top-fan-sub">Los álbumes que mejor te han pegado, ordenados por tu rating. Cada portada es una decisión tuya, una historia que llevás.</p>
+      <div class="top-fan-ctas">
+        <a class="top-fan-cta-primary" href="#" id="top-fan-explore">Calificar más álbumes</a>
+        <a class="top-fan-cta-secondary" href="#" id="top-fan-readmore">Leer más →</a>
+      </div>
+    </section>
+  `
+}
+
 function renderTopListSection(items) {
   if (items.length === 0) return ''
   const rendered = items
@@ -757,6 +1011,116 @@ function renderTopListSection(items) {
 }
 
 
+// ──────────────────────────────────────────────
+// FASE 4: Mosaico de avatares (direcciones opuestas)
+// ──────────────────────────────────────────────
+
+function renderAvatarMosaic() {
+  // Reunimos artistas únicos del top + calificados + vistos
+  const fromTop = cachedTopArtists.map((a) => a.name)
+  const fromRated = getAllRatedAlbums().map((r) => r.artist)
+  const fromViewed = getViewedArtists().map((v) => v.name)
+  const all = [...new Set([...fromTop, ...fromRated, ...fromViewed])]
+
+  if (all.length < 6) return ''
+
+  // Hasta 28 artistas, partidos en 2 filas
+  const picked = all.slice(0, 28)
+  const half = Math.ceil(picked.length / 2)
+  const row1 = picked.slice(0, half)
+  const row2 = picked.slice(half)
+
+  const renderRow = (names) => {
+    // Duplicamos para loop infinito perfecto
+    const doubled = [...names, ...names]
+    return doubled
+      .map((name) => {
+        const [from, to] = gradientForName(name)
+        const initial = name.charAt(0).toUpperCase()
+        const escName = escapeHtml(name)
+        return `
+          <div class="mosaic-avatar artist-card" data-artist="${escName}" title="${escName}">
+            <div class="mosaic-avatar-img" data-artist-img="${escName}" style="background: linear-gradient(135deg, ${from} 0%, ${to} 100%)">
+              <span class="mosaic-avatar-initial">${escapeHtml(initial)}</span>
+            </div>
+          </div>
+        `
+      })
+      .join('')
+  }
+
+  return `
+    <section class="mosaic-section">
+      <div class="mosaic-text">
+        <p class="mosaic-eyebrow">Comunidad</p>
+        <h2 class="mosaic-title">Estás entre los tuyos.</h2>
+        <p class="mosaic-sub">Toda la gente que pasa por tu radar musical, en movimiento.</p>
+      </div>
+      <div class="mosaic-rows">
+        <div class="mosaic-row mosaic-row-left">${renderRow(row1)}</div>
+        <div class="mosaic-row mosaic-row-right">${renderRow(row2)}</div>
+      </div>
+    </section>
+  `
+}
+
+// ──────────────────────────────────────────────
+// FASE 5: Color blocks (banner naranja + stats)
+// ──────────────────────────────────────────────
+
+function renderFeaturedBlock() {
+  const featured = cachedTopArtists[0]
+  if (!featured) return ''
+  const name = escapeHtml(featured.name)
+  const username = escapeHtml(artistUsername(featured.name))
+  const plays = formatMyPlays(featured.playcount)
+  const [from, to] = gradientForName(featured.name)
+  const initial = featured.name.charAt(0).toUpperCase()
+  return `
+    <section class="featured-banner artist-card" data-artist="${name}">
+      <div class="featured-banner-content">
+        <p class="featured-banner-eyebrow">Featured · #1 en tu top</p>
+        <h2 class="featured-banner-title">CLASS BY<br/>${name.toUpperCase()}</h2>
+        <p class="featured-banner-meta">${username} · ${escapeHtml(plays)}</p>
+        <button class="featured-banner-cta" type="button">
+          Ver perfil completo →
+        </button>
+      </div>
+      <div class="featured-banner-image" data-artist-img="${name}" style="background: linear-gradient(135deg, ${from} 0%, ${to} 100%)">
+        <span class="featured-banner-initial">${escapeHtml(initial)}</span>
+      </div>
+    </section>
+  `
+}
+
+function renderStatsBlocks() {
+  const ratedAlbums = getAllRatedAlbums().length
+  const ratedTracks = Object.keys(loadTrackRatings()).length
+  const exploredArtists = getViewedArtists().length
+  const topListens = cachedTopArtists[0]
+    ? parseInt(cachedTopArtists[0].playcount || '0', 10)
+    : 0
+
+  return `
+    <section class="blocks-grid">
+      <div class="color-block color-block-blue">
+        <p class="color-block-eyebrow">Where music breathes</p>
+        <h3 class="color-block-title">Tu colección,<br/>tu identidad.</h3>
+        <p class="color-block-text">Cada estrella es una decisión.<br/>Cada artista, una historia.</p>
+      </div>
+      <div class="color-block color-block-green">
+        <p class="color-block-eyebrow">Tu universo en números</p>
+        <div class="color-block-stats">
+          <div><strong>${ratedAlbums}</strong><span>álbumes calificados</span></div>
+          <div><strong>${ratedTracks}</strong><span>canciones con rating</span></div>
+          <div><strong>${exploredArtists}</strong><span>artistas explorados</span></div>
+          ${topListens > 0 ? `<div><strong>${formatMyPlays(topListens)}</strong><span>de tu #1 en Last.fm</span></div>` : ''}
+        </div>
+      </div>
+    </section>
+  `
+}
+
 function renderPromoBanner() {
   return `
     <section class="promo-banner">
@@ -793,6 +1157,7 @@ function renderCtaBanner() {
 }
 
 function renderHome() {
+  document.body.classList.remove('album-mode')
   setActiveLetter(null)
 
   const topArtists = cachedTopArtists.slice(0, 5).map((a) => ({
@@ -802,7 +1167,7 @@ function renderHome() {
 
   const recentRated = getAllRatedAlbums()
     .sort((a, b) => b.ratedAt - a.ratedAt)
-    .slice(0, 5)
+    .slice(0, 10)
 
   const topRated = getAllRatedAlbums()
     .sort((a, b) => {
@@ -817,33 +1182,26 @@ function renderHome() {
 
   const sections = []
 
-  if (topArtists.length > 0) {
-    sections.push(
-      renderRowSection('Mis más escuchados', renderRowArtistCards(topArtists))
-    )
+  // Fase 3 — Showcase: carrusel vertical infinito con top 10 artistas
+  const top10 = cachedTopArtists.slice(0, 10)
+  if (top10.length > 0) {
+    sections.push(renderVerticalCarousel(top10))
   }
 
-  sections.push(renderPromoBanner())
+  // Fase 5 — Featured Artist (banner naranja con #1 de Last.fm)
+  sections.push(renderFeaturedBlock())
 
+  // Fan estilo Pallet Ross: tus obras maestras (top calificados)
   if (topRated.length > 0) {
-    sections.push(renderTopListSection(topRated))
+    sections.push(renderTopRatedFan(topRated))
   }
 
+  // Fase 5 — Bloques azul + verde con stats personales
+  sections.push(renderStatsBlocks())
+
+  // Últimos calificados — constelación floating estilo Pallet Ross
   if (recentRated.length > 0) {
-    sections.push(
-      renderRowSection('Últimos calificados', renderRowAlbumCards(recentRated))
-    )
-  }
-
-  sections.push(renderCtaBanner())
-
-  if (viewed.length > 0) {
-    sections.push(
-      renderRowSection(
-        'Artistas vistos recientemente',
-        renderRowArtistCards(viewed)
-      )
-    )
+    sections.push(renderRecentRatedConstellation(recentRated))
   }
 
   resultsEl.innerHTML = sections.join('')
@@ -851,6 +1209,7 @@ function renderHome() {
 }
 
 function renderArtists(artists) {
+  document.body.classList.remove('album-mode')
   if (artists.length === 0) {
     resultsEl.innerHTML = `<p class="hint">No encontramos artistas con ese nombre. Intenta otro.</p>`
     return
@@ -979,6 +1338,7 @@ function renderCollection() {
 // Filtro alfabético: muestra los artistas que conoces — del Top de Last.fm,
 // de los álbumes calificados y de los vistos recientemente.
 function renderLetterFilter(letter) {
+  document.body.classList.remove('album-mode')
   setActiveLetter(letter)
 
   // Reunimos artistas de las tres fuentes con info contextual
@@ -1088,6 +1448,24 @@ function renderTracks(artist, album, tracks) {
   `
 }
 
+// Limpia el HTML del wiki de Last.fm (quita tags y enlaces) y trunca.
+function cleanWikiSummary(wiki) {
+  if (!wiki) return ''
+  const clean = wiki
+    .replace(/<a[^>]*>.*?<\/a>/g, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (clean.length <= 360) return clean
+  return clean.substring(0, 360).replace(/\s+\S*$/, '') + '…'
+}
+
+// Año desde el campo published del wiki ("Mon, 04 Aug 2018 …")
+function extractYearFromWiki(wiki) {
+  const match = wiki?.published?.match(/\b(19|20)\d{2}\b/)
+  return match ? match[0] : ''
+}
+
 function renderAlbumSidebar(currentAlbum, otherAlbums) {
   const filtered = otherAlbums
     .filter((a) => a.name !== currentAlbum)
@@ -1131,71 +1509,129 @@ function renderAlbumDetail(artist, album, cover, info, otherAlbums) {
     getTrackRating(artist, album, t.name)
   ).length
 
-  const tags = (info?.tags?.tag || []).slice(0, 4)
-  const tagsHtml = tags
-    .map((t) => `<span class="album-tag">${escapeHtml(t.name)}</span>`)
-    .join('')
-
-  const listeners = info?.listeners ? formatListeners(info.listeners) : ''
-  const playcount = info?.playcount ? formatPlaycount(info.playcount) : ''
+  const totalSeconds = tracks.reduce(
+    (sum, t) => sum + (parseInt(t.duration, 10) || 0),
+    0
+  )
+  const totalMins = Math.round(totalSeconds / 60)
+  const year = extractYearFromWiki(info?.wiki)
+  const wikiSummary = cleanWikiSummary(info?.wiki?.summary)
 
   const escArtist = escapeHtml(artist)
   const escAlbum = escapeHtml(album)
 
-  const coverHtml = albumCover
-    ? `<img class="album-hero-cover-img" src="${albumCover}" alt="Portada de ${escAlbum}" />`
-    : `<div class="album-hero-cover-img album-hero-cover-placeholder">♪</div>`
+  const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(
+    artist + ' ' + album
+  )}`
 
-  const starsDisplay = '★'
-    .repeat(avgRating)
-    .padEnd(5, '☆')
-    .split('')
-    .map((s) =>
-      s === '★'
-        ? '<span class="album-hero-star album-hero-star-filled">★</span>'
-        : '<span class="album-hero-star">☆</span>'
-    )
+  const coverHtml = albumCover
+    ? `<img class="album-page-cover-img" src="${albumCover}" alt="Portada de ${escAlbum}" />`
+    : `<div class="album-page-cover-img album-page-cover-placeholder">♪</div>`
+
+  const starsHtml = Array.from({ length: 5 }, (_, i) => {
+    const filled = i < avgRating
+    return `<span class="album-page-star ${filled ? 'album-page-star-filled' : ''}">★</span>`
+  }).join('')
+
+  const tracksHtml =
+    tracks.length > 0
+      ? tracks
+          .map((t, i) => {
+            const name = escapeHtml(t.name)
+            const duration = formatDuration(t.duration)
+            const num = (i + 1).toString().padStart(2, '0')
+            const rating = getTrackRating(artist, album, t.name)
+            return `
+              <li class="album-page-track" data-artist="${escArtist}" data-album="${escAlbum}" data-track="${name}">
+                <span class="album-page-track-num">${num}.</span>
+                <span class="album-page-track-name">${name}</span>
+                <span class="album-page-track-dur">${duration}</span>
+                <div class="rating album-page-track-rating">${renderTrackStars(rating)}</div>
+              </li>
+            `
+          })
+          .join('')
+      : `<li class="album-page-track-empty">No tenemos las canciones de este álbum.</li>`
+
+  const otherCovers = otherAlbums
+    .filter((a) => a.name !== album)
+    .slice(0, 10)
+  const otherHtml = otherCovers
+    .map((a) => {
+      const cv = getImageUrl(a.image, 'large')
+      const an = escapeHtml(a.name)
+      const ar = escapeHtml(a.artist?.name || artist)
+      const cvHtml = cv
+        ? `<img class="album-other-img" src="${cv}" alt="${an}" loading="lazy" />`
+        : `<div class="album-other-img album-other-placeholder">♪</div>`
+      return `
+        <article class="album-other-card collection-card" data-artist="${ar}" data-album="${an}" title="${an}">
+          ${cvHtml}
+        </article>
+      `
+    })
     .join('')
 
   resultsEl.innerHTML = `
-    <button class="back-btn" id="back-btn" data-action="to-artist" data-artist="${escArtist}">← Volver a ${escArtist}</button>
+    <button class="back-btn album-page-back" id="back-btn" data-action="to-artist" data-artist="${escArtist}">← Volver</button>
 
-    <section class="album-hero">
-      <div class="album-hero-cover">${coverHtml}</div>
-      <div class="album-hero-info">
-        <p class="album-hero-eyebrow">${escArtist}</p>
-        <h1 class="album-hero-title">${escAlbum}</h1>
-        <div class="album-hero-rating">
-          <div class="album-hero-stars">${starsDisplay}</div>
-          <span class="album-hero-rating-meta">
-            ${
-              ratedTracks > 0
-                ? `${avgRating}/5 · promedio de ${ratedTracks} ${ratedTracks === 1 ? 'canción' : 'canciones'} calificada${ratedTracks === 1 ? '' : 's'}`
-                : 'Califica las canciones para obtener tu rating del álbum'
-            }
-          </span>
+    <article class="album-page">
+      <div class="album-page-grid">
+        <div class="album-page-art">
+          <div class="album-page-cover-frame">
+            ${coverHtml}
+            <div class="album-page-vinyl"></div>
+          </div>
         </div>
-        ${tagsHtml ? `<div class="album-tags">${tagsHtml}</div>` : ''}
-        <div class="album-hero-meta">
-          ${tracks.length > 0 ? `<span>${tracks.length} canciones</span>` : ''}
-          ${listeners ? `<span>${listeners}</span>` : ''}
-          ${playcount ? `<span>${playcount}</span>` : ''}
-        </div>
-      </div>
-    </section>
 
-    <section class="album-body">
-      <div class="tracks-panel">
-        <h3 class="tracks-heading">Canciones</h3>
-        ${renderTracks(artist, album, tracks)}
+        <div class="album-page-info">
+          <h1 class="album-page-title">${escAlbum}</h1>
+          <p class="album-page-meta">
+            ${year ? `<span>${year}</span>` : ''}
+            <span>${tracks.length} tracks</span>
+            ${totalMins > 0 ? `<span>${totalMins} min</span>` : ''}
+          </p>
+
+          <a class="album-page-spotify" href="${spotifyUrl}" target="_blank" rel="noopener noreferrer">
+            <span class="album-page-spotify-dot"></span>
+            Listen on Spotify
+          </a>
+
+          <div class="album-page-rating-box">
+            <div class="album-page-stars">${starsHtml}</div>
+            <p class="album-page-rating-meta">
+              ${
+                ratedTracks > 0
+                  ? `${avgRating}/5 — promedio de ${ratedTracks} ${ratedTracks === 1 ? 'canción calificada' : 'canciones calificadas'}`
+                  : 'Califica las canciones para obtener tu rating del álbum'
+              }
+            </p>
+          </div>
+
+          ${wikiSummary ? `<p class="album-page-description">${escapeHtml(wikiSummary)}</p>` : ''}
+
+          <p class="album-page-artist-mark">"${escArtist.toUpperCase()}"</p>
+        </div>
+
+        <ol class="album-page-tracks">
+          ${tracksHtml}
+        </ol>
       </div>
-      ${renderAlbumSidebar(album, otherAlbums)}
-    </section>
+
+      ${
+        otherHtml
+          ? `<div class="album-page-other">
+               <div class="album-page-other-track">${otherHtml}</div>
+             </div>`
+          : ''
+      }
+    </article>
   `
   populateArtistImages()
 }
 
 async function showAlbumDetail(artist, album, cover = '') {
+  document.body.classList.add('album-mode')
   resultsEl.innerHTML = `<p class="hint">Cargando ${escapeHtml(album)}...</p>`
   try {
     const [info, otherAlbums] = await Promise.all([
@@ -1211,6 +1647,7 @@ async function showAlbumDetail(artist, album, cover = '') {
 }
 
 async function showArtistAlbums(artistName) {
+  document.body.classList.remove('album-mode')
   addViewedArtist(artistName)
   setActiveLetter(null)
   resultsEl.innerHTML = `<p class="hint">Cargando álbumes de ${escapeHtml(artistName)}...</p>`
@@ -1340,13 +1777,16 @@ resultsEl.addEventListener('click', (event) => {
     return
   }
 
-  // Click en una card de álbum (artista o colección) → abrir detalle
-  const albumCard = event.target.closest('.album-card, .collection-card, .sidebar-album')
+  // Click en una card de álbum (artista, colección, sidebar, fan, constel, other) → abrir detalle
+  const albumCard = event.target.closest(
+    '.album-card, .collection-card, .sidebar-album, .album-other-card'
+  )
   if (albumCard && albumCard.dataset.album) {
     const artist = albumCard.dataset.artist
     const album = albumCard.dataset.album
-    const coverImg =
-      albumCard.querySelector('img.album-cover, img.sidebar-album-cover')
+    const coverImg = albumCard.querySelector(
+      'img.album-cover, img.sidebar-album-cover, img.album-other-img, img.top-fan-cover, img.constel-cover'
+    )
     const cover = coverImg?.src ?? ''
     showAlbumDetail(artist, album, cover)
     return
@@ -1385,11 +1825,30 @@ refreshNowPlaying()
 setInterval(refreshNowPlaying, NOW_PLAYING_REFRESH_MS)
 
 // Cargar top artistas en segundo plano. Cuando terminan,
-// re-renderizamos la vista actual para incluirlos.
+// re-renderizamos la vista actual y poblamos las cards del hero.
 loadTopArtists().then(() => {
-  if (resultsEl.querySelector('.row-section, .events-section, .list-section')) {
+  populateHeroCards()
+  if (resultsEl.querySelector('.row-section, .list-section')) {
     renderHome()
   } else if (currentLetter) {
     renderLetterFilter(currentLetter)
+  }
+})
+
+// CTAs que hacen scroll al buscador
+function scrollToSearchInput(event) {
+  event?.preventDefault()
+  document
+    .querySelector('#search-input')
+    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  setTimeout(() => document.querySelector('#search-input')?.focus(), 600)
+}
+
+document.querySelector('#hero-explore')?.addEventListener('click', scrollToSearchInput)
+
+// Delegation para CTAs que se renderean dinámicamente
+document.body.addEventListener('click', (e) => {
+  if (e.target.matches('#top-fan-explore, #top-fan-readmore, #constel-visit')) {
+    scrollToSearchInput(e)
   }
 })
