@@ -141,7 +141,7 @@ function getMyTopRank(artistName) {
 // ──────────────────────────────────────────────
 // Imágenes de artistas vía Deezer (cache 30 días, sin auth)
 // ──────────────────────────────────────────────
-const ARTIST_IMG_KEY = 'fcg-artist-images-v1'
+const ARTIST_IMG_KEY = 'fcg-artist-images-v2'
 const ARTIST_IMG_TTL_MS = 30 * 24 * 60 * 60 * 1000 // 30 días
 
 let cachedArtistImages = (() => {
@@ -171,22 +171,38 @@ function setCachedArtistImage(name, url) {
   saveArtistImages()
 }
 
+// Normaliza nombres para comparar: minúsculas + solo alfanuméricos.
+// Así "blink-182" === "blink182" === "Blink 182" === "BLINK182"
+function normalizeArtistName(name) {
+  return String(name)
+    .toLowerCase()
+    .normalize('NFD')                  // separa acentos: "Beyoncé" → "Beyonce´"
+    .replace(/[̀-ͯ]/g, '')   // elimina marcas de acento
+    .replace(/[^a-z0-9]/g, '')         // solo letras/números
+}
+
 async function fetchArtistImage(name) {
   const cached = getCachedArtistImage(name)
   if (cached !== null) return cached
 
   try {
-    const params = new URLSearchParams({ q: name, limit: '1' })
+    // Pedimos hasta 5 candidatos para buscar el mejor match
+    const params = new URLSearchParams({ q: name, limit: '5' })
     const response = await fetch(`https://api.deezer.com/search/artist?${params}`)
     if (!response.ok) {
       setCachedArtistImage(name, '')
       return ''
     }
     const data = await response.json()
-    const artist = data?.data?.[0]
-    // Validamos que el nombre coincida razonablemente (evita falsos positivos)
-    const matches = artist?.name?.toLowerCase() === name.toLowerCase()
-    const url = matches ? (artist?.picture_medium || artist?.picture || '') : ''
+    const candidates = data?.data || []
+    const want = normalizeArtistName(name)
+
+    // Buscamos el primer candidato cuyo nombre normalizado coincide
+    const match = candidates.find(
+      (a) => normalizeArtistName(a.name || '') === want
+    )
+
+    const url = match?.picture_medium || match?.picture || ''
     setCachedArtistImage(name, url)
     return url
   } catch (error) {
@@ -362,47 +378,61 @@ function addViewedArtist(name) {
 const app = document.querySelector('#app')
 
 app.innerHTML = `
-  <nav class="navbar">
-    <a class="brand" href="#" data-view="home">FCG <span class="brand-sep">|</span> MusicAnalysis</a>
-  </nav>
-
-  <section class="hero">
-    <div class="hero-cards" id="hero-cards"></div>
-
-    <div class="hero-content">
-      <p class="hero-eyebrow">Bienvenido a tu galería musical</p>
-      <h1 class="hero-title">Un lugar para tu<br/>obsesión musical.</h1>
-      <p class="hero-subtitle">Explora artistas, califica álbumes y descubre quién te mueve. Tu música, tu colección, tu historia.</p>
-      <div class="hero-ctas">
-        <a class="hero-cta-primary" href="${SPOTIFY_URL}" target="_blank" rel="noopener noreferrer">Sígueme en Spotify</a>
-        <a class="hero-cta-secondary" href="#empieza" id="hero-explore">Empezar a explorar →</a>
+  <header class="holo-header">
+    <div class="holo-profile">
+      <img class="holo-avatar" src="/hero.jpg" alt="Fabian" />
+      <div class="holo-profile-info">
+        <p class="holo-name">Fabian</p>
+        <button class="holo-logout">Logout</button>
       </div>
     </div>
 
-    <div class="now-playing-wrap">
-      <div class="now-playing" id="now-playing" hidden></div>
+    <a class="holo-brand" href="#" data-view="home">FCG <span class="brand-sep">|</span> MUSICANALYSIS</a>
+
+    <div class="holo-widgets">
+      <div class="holo-widget holo-weather">
+        <div class="holo-weather-icon">☁</div>
+        <div>
+          <p class="holo-weather-temp">23°C</p>
+          <p class="holo-weather-desc">Parcialmente nublado</p>
+        </div>
+      </div>
+      <div class="holo-widget holo-time">
+        <p class="holo-time-h" id="holo-time">--:--</p>
+        <p class="holo-time-d" id="holo-date">cargando…</p>
+      </div>
+      <button class="holo-bell" aria-label="Notificaciones">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+        </svg>
+      </button>
     </div>
-  </section>
+  </header>
 
   <main>
-    <section class="search-section">
+    <section class="holo-search">
       <form id="search-form">
         <input
           type="text"
           id="search-input"
-          placeholder="Busca un artista (ej: Radiohead)"
+          placeholder="Buscar artista..."
           autocomplete="off"
         />
         <button type="submit">Buscar</button>
       </form>
-
-      <div class="alphabet-bar" id="alphabet-bar">
-        ${ALPHABET.map((l) => `<button class="letter" data-letter="${l}">${l}</button>`).join('')}
-      </div>
     </section>
 
     <section id="results" class="results"></section>
+
+    <div class="alphabet-bar" id="alphabet-bar" hidden>
+      ${ALPHABET.map((l) => `<button class="letter" data-letter="${l}">${l}</button>`).join('')}
+    </div>
   </main>
+
+  <div class="now-playing-wrap" hidden>
+    <div class="now-playing" id="now-playing" hidden></div>
+  </div>
 
   <footer class="site-footer">
     <div class="site-footer-inner">
@@ -1156,56 +1186,282 @@ function renderCtaBanner() {
   `
 }
 
-function renderHome() {
+// ──────────────────────────────────────────────
+// HOLOGRAPHIC UI: Cover Flow 3D + Bento Grid
+// ──────────────────────────────────────────────
+
+let coverflowCenter = 0
+let coverflowAlbums = []
+
+async function getCoverFlowAlbums() {
+  const rated = getAllRatedAlbums()
+  if (rated.length >= 4) {
+    return rated
+      .sort((a, b) => b.rating - a.rating || (b.ratedAt || 0) - (a.ratedAt || 0))
+      .slice(0, 12)
+  }
+
+  // Fallback: top albums del #1 artista del top de Last.fm
+  if (cachedTopArtists.length > 0) {
+    try {
+      const topAlbums = await fetchTopAlbums(cachedTopArtists[0].name)
+      return topAlbums.slice(0, 12).map((a) => ({
+        artist: cachedTopArtists[0].name,
+        album: a.name,
+        cover: getImageUrl(a.image, 'extralarge') || getImageUrl(a.image, 'large'),
+        rating: 0,
+      }))
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+function renderCoverFlowHTML(albums) {
+  if (albums.length === 0) {
+    return `
+      <section class="coverflow-section">
+        <div class="cf-empty">
+          <p>Califica álbumes para verlos aquí en un carrusel 3D.</p>
+          <p class="hint">Busca un artista arriba para empezar.</p>
+        </div>
+      </section>
+    `
+  }
+
+  coverflowAlbums = albums
+  coverflowCenter = Math.floor(albums.length / 2)
+
+  const cards = albums
+    .map((a, i) => {
+      const offset = i - coverflowCenter
+      const artist = escapeHtml(a.artist)
+      const album = escapeHtml(a.album)
+      const coverImg = a.cover
+        ? `<img src="${a.cover}" alt="${album}" loading="lazy" />`
+        : `<div class="cf-placeholder">♪</div>`
+      return `
+        <article class="cf-album collection-card"
+                 data-pos="${offset}" data-idx="${i}"
+                 data-artist="${artist}" data-album="${album}">
+          ${coverImg}
+        </article>
+      `
+    })
+    .join('')
+
+  const centerAlbum = albums[coverflowCenter]
+  const centerStars = centerAlbum.rating > 0
+    ? '★'.repeat(centerAlbum.rating) + '☆'.repeat(5 - centerAlbum.rating)
+    : ''
+
+  return `
+    <section class="coverflow-section">
+      <div class="coverflow-stage">
+        <button class="cf-arrow cf-prev" id="cf-prev" aria-label="Anterior">‹</button>
+        <div class="coverflow-3d">
+          <div class="cf-track" id="cf-track">${cards}</div>
+        </div>
+        <button class="cf-arrow cf-next" id="cf-next" aria-label="Siguiente">›</button>
+      </div>
+      <div class="cf-center-info" id="cf-center-info">
+        <h2 class="cf-album-title">${escapeHtml(centerAlbum.album)}</h2>
+        <p class="cf-album-artist">${escapeHtml(centerAlbum.artist)}</p>
+        ${centerStars ? `<p class="cf-album-rating">${centerStars}</p>` : ''}
+      </div>
+    </section>
+  `
+}
+
+function updateCoverFlowDOM() {
+  if (coverflowAlbums.length === 0) return
+
+  document.querySelectorAll('.cf-album').forEach((el) => {
+    const idx = parseInt(el.dataset.idx, 10)
+    el.dataset.pos = idx - coverflowCenter
+  })
+
+  const album = coverflowAlbums[coverflowCenter]
+  const infoEl = document.querySelector('#cf-center-info')
+  if (infoEl && album) {
+    const stars = album.rating > 0
+      ? '★'.repeat(album.rating) + '☆'.repeat(5 - album.rating)
+      : ''
+    infoEl.innerHTML = `
+      <h2 class="cf-album-title">${escapeHtml(album.album)}</h2>
+      <p class="cf-album-artist">${escapeHtml(album.artist)}</p>
+      ${stars ? `<p class="cf-album-rating">${stars}</p>` : ''}
+    `
+  }
+}
+
+function cfNext() {
+  if (coverflowCenter < coverflowAlbums.length - 1) {
+    coverflowCenter++
+    updateCoverFlowDOM()
+  }
+}
+
+function cfPrev() {
+  if (coverflowCenter > 0) {
+    coverflowCenter--
+    updateCoverFlowDOM()
+  }
+}
+
+function renderBentoDashboard() {
+  const stats = {
+    albums: getAllRatedAlbums().length,
+    tracks: Object.keys(loadTrackRatings()).length,
+    artists: getViewedArtists().length,
+  }
+
+  // Col 1: Recommended — top artistas del usuario
+  const recArtists = cachedTopArtists.slice(0, 4)
+  const recommendedHtml = recArtists.length > 0
+    ? recArtists
+        .map((a) => {
+          const initial = a.name.charAt(0).toUpperCase()
+          const [from, to] = gradientForName(a.name)
+          const escName = escapeHtml(a.name)
+          return `
+            <article class="bento-rec-card artist-card" data-artist="${escName}">
+              <div class="bento-rec-cover" data-artist-img="${escName}"
+                   style="background: linear-gradient(135deg, ${from}, ${to})">
+                <span class="bento-rec-initial">${escapeHtml(initial)}</span>
+              </div>
+              <div class="bento-rec-info">
+                <p class="bento-rec-name">${escName}</p>
+                <p class="bento-rec-meta">${escapeHtml(formatMyPlays(a.playcount) || 'Top en Last.fm')}</p>
+              </div>
+            </article>
+          `
+        })
+        .join('')
+    : `<p class="bento-empty">Conectando con Last.fm...</p>`
+
+  // Col 3: Discover — covers grid de albums recientes
+  const recentAlbums = getAllRatedAlbums()
+    .sort((a, b) => (b.ratedAt || 0) - (a.ratedAt || 0))
+    .slice(0, 9)
+
+  const discoverHtml = recentAlbums.length > 0
+    ? recentAlbums
+        .map((a) => {
+          const artist = escapeHtml(a.artist)
+          const album = escapeHtml(a.album)
+          return `
+            <article class="bento-img-card collection-card"
+                     data-artist="${artist}" data-album="${album}"
+                     title="${album} · ${artist}">
+              ${a.cover
+                ? `<img src="${a.cover}" alt="${album}" loading="lazy" />`
+                : `<div class="bento-img-placeholder">♪</div>`}
+            </article>
+          `
+        })
+        .join('')
+    : `<p class="bento-empty">Tus álbumes calificados aparecerán aquí.</p>`
+
+  return `
+    <section class="bento-section">
+      <div class="bento-grid">
+        <div class="bento-col">
+          <h3 class="bento-col-title">Recommended</h3>
+          <div class="bento-card bento-card-rec">
+            <div class="bento-rec-list">${recommendedHtml}</div>
+          </div>
+        </div>
+
+        <div class="bento-col">
+          <h3 class="bento-col-title">Recent</h3>
+          <div class="bento-card bento-card-player" id="bento-player">
+            <p class="bento-card-label">Ahora suena</p>
+            <p class="bento-card-empty">Sin actividad reciente</p>
+          </div>
+          <div class="bento-card bento-card-stats">
+            <p class="bento-card-label">Tu actividad</p>
+            <div class="bento-stats">
+              <div class="bento-stat"><strong>${stats.albums}</strong><span>álbumes</span></div>
+              <div class="bento-stat"><strong>${stats.tracks}</strong><span>canciones</span></div>
+              <div class="bento-stat"><strong>${stats.artists}</strong><span>artistas</span></div>
+            </div>
+            <div class="bento-bars">
+              ${[6, 8, 5, 9, 7, 8, 6].map((h) => `<span class="bento-bar" style="--h: ${h * 10}%"></span>`).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div class="bento-col">
+          <h3 class="bento-col-title">Discover</h3>
+          <div class="bento-card bento-card-discover">
+            <div class="bento-img-grid">${discoverHtml}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  `
+}
+
+// Reloj en header — se actualiza cada minuto
+function updateHeaderClock() {
+  const now = new Date()
+  const time = now.toLocaleTimeString('es-CO', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const date = now.toLocaleDateString('es-CO', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
+  const timeEl = document.querySelector('#holo-time')
+  const dateEl = document.querySelector('#holo-date')
+  if (timeEl) timeEl.textContent = time
+  if (dateEl) {
+    dateEl.textContent = date.charAt(0).toUpperCase() + date.slice(1)
+  }
+}
+
+async function renderHome() {
   document.body.classList.remove('album-mode')
   setActiveLetter(null)
 
-  const topArtists = cachedTopArtists.slice(0, 5).map((a) => ({
-    name: a.name,
-    meta: formatMyPlays(a.playcount),
-  }))
+  // Mostrar un placeholder mientras cargan los datos del cover flow
+  resultsEl.innerHTML = `<div class="cf-loading"><p>Preparando tu galería...</p></div>`
 
-  const recentRated = getAllRatedAlbums()
-    .sort((a, b) => b.ratedAt - a.ratedAt)
-    .slice(0, 10)
+  const albums = await getCoverFlowAlbums()
 
-  const topRated = getAllRatedAlbums()
-    .sort((a, b) => {
-      if (b.rating !== a.rating) return b.rating - a.rating
-      return b.ratedAt - a.ratedAt
-    })
-    .slice(0, 10)
+  resultsEl.innerHTML = `
+    ${renderCoverFlowHTML(albums)}
+    ${renderBentoDashboard()}
+  `
 
-  const viewed = getViewedArtists()
-    .slice(0, 5)
-    .map((v) => ({ name: v.name, meta: timeAgo(v.viewedAt) }))
-
-  const sections = []
-
-  // Fase 3 — Showcase: carrusel vertical infinito con top 10 artistas
-  const top10 = cachedTopArtists.slice(0, 10)
-  if (top10.length > 0) {
-    sections.push(renderVerticalCarousel(top10))
-  }
-
-  // Fase 5 — Featured Artist (banner naranja con #1 de Last.fm)
-  sections.push(renderFeaturedBlock())
-
-  // Fan estilo Pallet Ross: tus obras maestras (top calificados)
-  if (topRated.length > 0) {
-    sections.push(renderTopRatedFan(topRated))
-  }
-
-  // Fase 5 — Bloques azul + verde con stats personales
-  sections.push(renderStatsBlocks())
-
-  // Últimos calificados — constelación floating estilo Pallet Ross
-  if (recentRated.length > 0) {
-    sections.push(renderRecentRatedConstellation(recentRated))
-  }
-
-  resultsEl.innerHTML = sections.join('')
   populateArtistImages()
+
+  // Conectar navegación del Cover Flow
+  document.querySelector('#cf-prev')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    cfPrev()
+  })
+  document.querySelector('#cf-next')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    cfNext()
+  })
+
+  // Click en una card lateral del cover flow → centrarla (no abrir detalle)
+  document.querySelectorAll('.cf-album').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      const pos = parseInt(el.dataset.pos, 10)
+      if (pos !== 0) {
+        e.stopPropagation()
+        coverflowCenter = parseInt(el.dataset.idx, 10)
+        updateCoverFlowDOM()
+      }
+    })
+  })
 }
 
 function renderArtists(artists) {
@@ -1743,7 +1999,8 @@ resultsEl.addEventListener('click', (event) => {
   const trackStar = event.target.closest('.track-star')
   if (trackStar) {
     event.stopPropagation()
-    const row = trackStar.closest('.track-row')
+    // Busca el contenedor del track (acepta clase legacy .track-row o la nueva .album-page-track)
+    const row = trackStar.closest('[data-track]')
     if (!row) return
     const artist = row.dataset.artist
     const album = row.dataset.album
@@ -1751,9 +2008,11 @@ resultsEl.addEventListener('click', (event) => {
     const value = parseInt(trackStar.dataset.value, 10)
     const current = getTrackRating(artist, album, track)
     const newValue = current === value ? 0 : value
-    // Buscamos el cover en el hero del álbum para guardarlo si falta
+    // Buscamos el cover de la página actual para guardarlo si falta
     const cover =
-      document.querySelector('.album-hero-cover-img')?.src ?? ''
+      document.querySelector('.album-page-cover-img')?.src ??
+      document.querySelector('.album-hero-cover-img')?.src ??
+      ''
     setTrackRating(artist, album, track, newValue, cover)
     updateRatingDisplay(trackStar.closest('.rating'), newValue)
     return
@@ -1823,6 +2082,19 @@ resultsEl.addEventListener('click', (event) => {
 renderHome()
 refreshNowPlaying()
 setInterval(refreshNowPlaying, NOW_PLAYING_REFRESH_MS)
+
+// Reloj del header — actualiza cada 30s
+updateHeaderClock()
+setInterval(updateHeaderClock, 30_000)
+
+// Navegación del Cover Flow con flechas del teclado
+document.addEventListener('keydown', (e) => {
+  if (document.body.classList.contains('album-mode')) return
+  // Ignorar si estamos escribiendo en el input
+  if (document.activeElement?.tagName === 'INPUT') return
+  if (e.key === 'ArrowRight') cfNext()
+  if (e.key === 'ArrowLeft') cfPrev()
+})
 
 // Cargar top artistas en segundo plano. Cuando terminan,
 // re-renderizamos la vista actual y poblamos las cards del hero.
